@@ -538,6 +538,7 @@ user32.SetWindowLongPtrW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_ssize
 user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
 user32.GetWindowLongPtrW.argtypes = (wintypes.HWND, ctypes.c_int)
 user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+user32.IsIconic.argtypes = (wintypes.HWND,)
 GW_OWNER, GWLP_HWNDPARENT = 4, -8
 
 
@@ -584,7 +585,27 @@ class Window:
         except Exception as e:
             log.warning("couldn't put the window above Orca: %s", e)
 
+    def center_on_orca(self):
+        """Move the window to the middle of Orca's main window, so it opens on Orca's monitor."""
+        if not self.orca_pid:
+            return
+        try:
+            orca = main_window_of(self.orca_pid)
+            if not orca or user32.IsIconic(orca):
+                return  # minimized Orca reports an off-screen position
+            o, w = wintypes.RECT(), wintypes.RECT()
+            user32.GetWindowRect(orca, ctypes.byref(o))
+            self.top.update_idletasks()
+            user32.GetWindowRect(int(self.top.wm_frame(), 16), ctypes.byref(w))  # with the title bar
+            x = o.left + (o.right - o.left - (w.right - w.left)) // 2
+            y = o.top + (o.bottom - o.top - (w.bottom - w.top)) // 2
+            self.top.geometry(f"+{x}+{y}")
+        except Exception as e:
+            log.warning("couldn't center the window on Orca: %s", e)
+
     def show(self, filename):
+        # Centered only when it opens, so a window the user has moved stays put during the batch.
+        opening = self.top is None or not self.top.winfo_exists() or self.top.state() == "withdrawn"
         if self.top is None or not self.top.winfo_exists():
             self.top = tk.Toplevel(self.root)
             self.top.title(t("window_title"))
@@ -609,6 +630,8 @@ class Window:
             self.buttons.pack(fill="x", pady=(12, 0))
             self.buttons.pack_propagate(False)
         self.title.config(text=filename if len(filename) <= 46 else filename[:43] + "...")
+        if opening:
+            self.center_on_orca()
         self.top.deiconify()
         self.stay_above_orca()  # every time: Orca's main window may have been recreated
         self.top.lift()
